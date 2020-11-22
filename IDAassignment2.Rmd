@@ -1,0 +1,221 @@
+---
+title: "IDA2"
+output:
+  pdf_document: default
+  html_document: default
+---
+# IDA Assignment 2 - Philippe Mantke
+```{r, message=FALSE}
+
+require(maxLik)
+
+```
+
+
+## Question 1
+
+### 1(a)
+
+![](1a.PNG)
+
+### 1(b)
+
+![](1b.PNG)
+
+### 1(c)
+
+![](1c.PNG)
+
+## Question2 
+
+### 2(a)
+
+![](2a.PNG)
+
+### 2(B)
+```{r 2b}
+load("dataex2.Rdata")
+
+
+log_like = function(param, data){
+x = data[,1]; r = data[,2]
+mu = param[1]
+
+sigma = 1.5
+
+sum((r*log(dnorm(x,mu,sigma))) + (1-r)*log(pnorm(x,mu,sigma)))
+}
+
+mle = maxLik(logLik = log_like, data = dataex2, start = c(mu = 0))
+summary(mle)
+mle = maxLik(logLik = log_like, data = dataex2, start = c(mu = 1))
+summary(mle)
+mle = maxLik(logLik = log_like, data = dataex2, start = c(mu = 2))
+summary(mle)
+
+# same estimate for different starting values
+```
+The MLE for $\mu$ is 5.5328. We get the same result with different starting values.
+
+## Question 3 
+
+(a) We have that missingness depends on y1 and not on y2 (the missing data) (i.e. MAR) and that the paramer $\psi$ (missingness mechanism) and $\theta$ (data model) are distinct. Hence we satisfy both conditions for and **ignorable** data mechanism. 
+
+(b) We have that missingness depends on y1 and not on y2 (the missing data). Even though the paramer $\psi$ (missingness mechanism) and $\theta$ (data model) are distinct, the missing data are MNAR, and so the data mechanism is **NOT ignorable**. 
+
+(c) We have that missingness depends on y1, $\mu1$ also depends on y1, and not on y2 (the missing data) so data is MAR. However the parameter $\psi$ (missingness mechanism) now consist of $\mu_1$ and scalar $\psi$ so clearly $\theta$ (data model) and $\psi$ (missingness mechanism) are Not distinct. i.e the mechanism is **NOT ignorable. **
+
+
+
+## Question 4
+
+Derivation of the E-step: 
+
+![](4_estep.PNG)
+
+
+Implementation of the EM algorithm to compute the maximum likelihood estimate of $\beta$:
+```{r q4}
+#Redefine 
+load("dataex4.Rdata")
+
+#our missingness is in r
+
+
+EM = function(theta, eps){
+  
+  # define the E-step
+  estep = function(param, data = dataex4){
+    x = data[,1]
+    y = data[, 2]
+    r = y
+    r[is.na(y)] = 1
+    r[!is.na(y)] = 0
+    
+    yobs = y
+    yobs[is.na(y)] = 0 
+    
+    beta0 = param[1]
+    beta1 = param[2]
+    beta0_t = param[3]
+    beta1_t = param[4]
+    
+    piB = exp(beta0_t+beta1_t*x)/(1+exp(beta0_t+beta1_t*x))
+    
+    sum((yobs*(beta0+beta1*x)) - (1-r)*log(1+exp(beta0+beta1*x))) + 
+      sum(r*((piB)*(beta0+beta1*x) - log(1+exp(beta0+beta1*x))))
+  }
+  # m-step using maxLik
+  diff = 1
+  i = 0
+  while(diff > eps){
+    theta.old = theta
+    # xFixed fixes two values: our beta0_t and beta1_t for the expected value
+
+    theta = maxLik(fnSubset, fnFull = estep, xFixed = theta, data = dataex4, 
+                   start = theta)[["estimate"]]
+    #print(theta)
+    diff = sum(abs(theta-theta.old))
+    i = i+1
+  }
+  #print(i)
+  return(theta)
+  
+  
+}
+
+coefs1 = EM(theta = c(0, 0), eps = 0.00001)
+coefs2 = EM(theta = c(1, 1), eps = 0.00001)
+coefs3 = EM(theta = c(2, 2), eps = 0.00001)
+
+
+coefs1
+coefs2
+coefs3
+
+
+
+```
+
+Thus we get the estimates of $\beta_0 = 0.9755$  and $\beta_1 = -2.480$, with different starting values. 
+
+
+## Question 5
+
+### 5(a)
+
+![](5a_part1.PNG)
+
+![](5a_part2.PNG)
+
+![](5a_part3.PNG)
+
+
+### 5(b)
+```{r q5}
+load("dataex5.Rdata")
+
+
+em.mixture.lognormal.exp = function(y, theta0, eps){
+  n = length(y)
+  theta = theta0
+  
+  p = theta[1]
+  mu1 = theta[2]
+  sigma1 = theta[3]
+  lambda = theta[4] 
+  diff = 1
+  
+  while(diff > eps){
+    
+    theta.old = theta
+    #E-step
+    
+    ptilde1 = p*dlnorm(y, meanlog = mu1, sdlog = sigma1)
+    ptilde2 = (1 - p)*dexp(y, rate = lambda)
+    ptilde = ptilde1/(ptilde1 + ptilde2)
+    
+    
+    #M-step
+    p = mean(ptilde)
+    
+    mu1 = sum(log(y)*ptilde)/sum(ptilde)
+    
+    sigma1 = sqrt(sum(((log(y) - mu1)^2)*ptilde)/sum(ptilde))
+    
+    lambda = sum(1-ptilde)/(sum((1-ptilde)*y))
+   
+    theta = c(p, mu1, sigma1, lambda)
+    diff = sum(abs(theta - theta.old))
+  }
+  return(theta)
+}
+
+
+
+###################################################################################
+theta0 = c(0.5,1,1,1)
+eps = 1e-8
+res = em.mixture.lognormal.exp(dataex5,theta0,eps)
+res
+
+p = res[1]
+mu1 = res[2]
+sigma1 = res[3]
+lambda = res[4] 
+
+hist(dataex5, main = "mixture plot", xlab = "x", ylab="density", 
+     freq = F, cex.main = 1.5, cex.lab = 1.5, cex.axis = 1.4, breaks = 100)
+curve(p*dlnorm(x, mu1, sigma1) + (1 - p)*dexp(x, lambda), add = TRUE, lwd = 2, 
+      col = "blue2")
+
+
+
+
+```
+The density does not seem well aproximated by the log-normal for values close to zero. 
+
+
+
+
+
